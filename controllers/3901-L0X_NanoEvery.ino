@@ -4,17 +4,21 @@
 // HardwareSerial mspSerial(1);
 #define mspSerial (Serial1)
 
-struct __attribute__((packed)) mspSensorOpflowDataMessage_t {
+// 0x1F01 = 7937 - Rangefinder data
+#define MSP_SENSOR_RANGEFINDER (0x1F01)
+// 0x1F02 = 7938 - Optical flow data
+#define MSP_SENSOR_OPTICAL_FLOW (0x1F02)
+struct __attribute__((packed)) mspSensorOpticalFlowDataMessage_t {
   uint8_t quality;    // [0;255]
   int32_t motionX;
   int32_t motionY;
 };
-
 struct __attribute__((packed)) mspSensorRangefinderDataMessage_t {
   uint8_t quality;    // [0;255]
   int32_t distanceMm; // Negative value for out of range
 };
 
+// https://github.com/iNavFlight/inav/wiki/MSP-V2#crc_dvb_s2-example
 uint8_t crc8_dvb_s2(uint8_t crc, unsigned char a) {
   crc ^= a;
   for (int ii = 0; ii < 8; ++ii) {
@@ -35,8 +39,7 @@ void setup() {
   while (!Serial) {}
 }
 
-// Can return nullptr for error cases!
-void readMSPMessage((void (*)(uint16_t, uint16_t, uint8_t*)) callback) {
+void readMSPMessage(void (*callback)(uint16_t commandID, uint16_t payloadSize, uint8_t* data)) {
   // https://github.com/iNavFlight/inav/wiki/MSP-V2#msp-v2-message-structure
   uint8_t flag = mspSerial.read();
   
@@ -80,41 +83,27 @@ void readMSPMessage((void (*)(uint16_t, uint16_t, uint8_t*)) callback) {
   }
 }
 
-
-int32_t tempLastDistanceMM = 0;
-int32_t tempLastMotionX = 0;
-int32_t tempLastMotionY = 0;
-
 void handleMSPUpdate(uint16_t commandID, uint16_t payloadSize, uint8_t* data) {
-  if(commandID == 7938 && payloadSize == sizeof(mspSensorOpflowDataMessage_t)) {
+  // This is a really hacky "protocol" to send the data, but it works for now lol
+  if(commandID == MSP_SENSOR_OPTICAL_FLOW && payloadSize == sizeof(mspSensorOpflowDataMessage_t)) {
     mspSensorOpflowDataMessage_t* msg = reinterpret_cast<mspSensorOpflowDataMessage_t*>(data);
-    Serial.print("Motion X: ");
+    Serial.print("### OPTICAL_FLOW | MOTION_X ");
     Serial.print(msg->motionX);
-    Serial.print(", Motion Y: ");
+    Serial.print(" | MOTION_Y ");
     Serial.print(msg->motionY);
-    Serial.print(", Quality: ");
+    Serial.print(" | QUALITY ");
     Serial.println(msg->quality);
-    // tempLastMotionX = msg->motionX;
-    // tempLastMotionY = msg->motionY;
-  } else if(commandID == 7937 && payloadSize == sizeof(mspSensorRangefinderDataMessage_t)) {
+  } else if(commandID == MSP_SENSOR_RANGEFINDER && payloadSize == sizeof(mspSensorRangefinderDataMessage_t)) {
     mspSensorRangefinderDataMessage_t* msg = reinterpret_cast<mspSensorRangefinderDataMessage_t*>(data);
-    // tempLastDistanceMM = msg->distanceMm;
-    Serial.print("Distance: ");
+    Serial.print("### DISTANCE | DISTANCE ");
     Serial.print(msg->distanceMm);
-    Serial.print(", Quality: ");
+    Serial.print(" | QUALITY ");
     Serial.println(msg->quality);
   } else {
     Serial.print("UNEXPECTED VALUE: Unknown command id ");
     Serial.println(commandID);
   }
   delay(1);
-
-  // Serial.print(tempLastMotionX);
-  // Serial.print(" ");
-  // Serial.print(tempLastMotionY);
-  // Serial.print(" ");
-  // Serial.print(tempLastDistanceMM);
-  // Serial.println();
 }
 
 void handleMSPError(uint16_t commandID, uint16_t payloadSize, uint8_t* data) {
@@ -138,19 +127,22 @@ void readMSPHeader() {
   
   // https://github.com/iNavFlight/inav/wiki/MSP-V2#message-types
   if (header[0] == '$' && header[1] == 'X') {
-    if(header[2] == '<') {
-      // This is the "normal" case
-      readMSPMessage(&handleMSPUpdate);
-    } else if(header[2] == '>') {
-      // Response... it doesn't make sense if we receive this
-      Serial.println("UNEXPECTED VALUE: Response message (Header: $X>)");
-      mspSerial.flush(); // Skip the rest of the message
-    } else if(header[2] == "!") {
-      Serial.print("RECIEVED ERROR: ");
-      readMSPMessage(&handleMSPError);
-    } else {
-      Serial.println("UNEXPECTED VALUE: Unknown message (Header: $X?)");
-      mspSerial.flush(); // Skip the rest of the message
+    switch(header[2]) {
+      case '<':
+        readMSPMessage(&handleMSPUpdate);
+        break;
+      case '!':
+        Serial.print("RECIEVED ERROR: ");
+        readMSPMessage(&handleMSPError);
+        break;
+      case '>':
+        Serial.println("UNEXPECTED VALUE: Response message (Header: $X>)");
+        mspSerial.flush(); // Skip the rest of the message
+        break;
+      default:
+        Serial.println("UNEXPECTED VALUE: Unknown message (Header: $X?)");
+        mspSerial.flush(); // Skip the rest of the message
+        break;
     }
   }
 }
@@ -160,6 +152,6 @@ void loop() {
   if (mspSerial.available() >= 6) {
     readMSPHeader();
   } else {
-    // Serial.println("No data");
+    delay(1);
   }
 }

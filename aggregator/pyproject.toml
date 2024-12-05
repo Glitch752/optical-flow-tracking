@@ -1,0 +1,17 @@
+[project]
+name = "aggregator"
+version = "0.1.0"
+dependencies = [
+    "pyserial>=3.5",
+    "matplotlib>=3.9.3",
+    "filterpy>=1.4.5",
+    "fastplotlib>=0.2.0",
+    "pyside6>=6.8.1",
+]
+
+[project.scripts]
+"aggregator" = "aggregator:main"
+
+[tool.rye]
+managed = false
+dev-dependencies = []

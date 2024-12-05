@@ -1,2 +1,11 @@
 .theia/
 .vscode/
+
+aggregator/**/__pycache__/
+aggregator/**/*.py[oc]
+aggregator/**/build/
+aggregator/**/dist/
+aggregator/**/wheels/
+aggregator/**/*.egg-info
+aggregator/**/.venv
+aggregator/**/.pdm-build/
